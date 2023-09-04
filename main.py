@@ -18,8 +18,8 @@ import torchvision.models as models
 OUTPUT_NODE = 331
 BASE_DIR = "input/flowers-recognition/flowers/flowers"
 MODEL_FILE_NAME = "flower-resnet.pth"
-NUM_OF_EPOCHS = 100
-BATCH_SIZE = 32
+NUM_OF_EPOCHS = 30
+BATCH_SIZE = 16
 
 #NOTE: 
 # if images that need to be classified should be put into 
@@ -43,7 +43,10 @@ def main():
         print(f"Could not find a model named {MODEL_FILE_NAME}. Starting a new Model")
         
     if(loaded_model):
+        # use either CPU pf CUDA gpu
         device = get_default_device()
+
+        # Augment Image
         transformer = torchvision.transforms.Compose(
         [   # Applying Augmentation
             torchvision.transforms.Resize((224, 224)),
@@ -55,33 +58,43 @@ def main():
                 mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
             ),
         ])
+        # load dataset, just folders of plants
         dataset = ImageFolder(BASE_DIR, transform=transformer)
         
         validation_size = 500
         training_size = len(dataset) - validation_size
-
+        
+        # Docs: https://pytorch.org/docs/stable/data.html#torch.utils.data.random_split
+        #                                   (Dataset, lenghts,                        denerator)   
         train_ds, val_ds_main = random_split(dataset, [training_size, validation_size])
         val_ds, test_ds = random_split(val_ds_main, [300, 200])
+        # Docs: https://pytorch.org/docs/stable/data.html#torch.utils.data.random_split
         val_dl = DataLoader(val_ds, batch_size=BATCH_SIZE)
-
+        # while loading datta use a specif device
         val_dl = DeviceDataLoader(val_dl, device)
 
-        
+        # make a model for loading
         model = ImageClassificationModel()
+        # load the moddel
         model.load_state_dict(torch.load(MODEL_FILE_NAME))
         
+        # move the tensors to a specif device
         to_device(model, device)
 
+        # NOTE: Might need to delete the to_device above
+        # sane as above 
         model = to_device(model, device)
 
         evaluate(model, val_dl)    
 
-
+        # start the image classification
+        # just assume that the image to be classified are at the end
         #             (start at 1,  to 2+1)
         for x in range(1, CLASSIFIED_IMAGES_COUNT+1):
+            #get the last index 
             index = int(len(test_ds) - x )
             img, label = test_ds[index]
-
+            # show what the NN thinks the image is
             print('Label:', dataset.classes[label], ', Predicted:', predict_image(img, model, device, dataset))
         
     else:
@@ -101,49 +114,65 @@ def main():
         # turn images into tensors
         dataset = ImageFolder(BASE_DIR, transform=transformer)
         
+        # ahow iamge
         show_example(*dataset[2])
 
         validation_size = 500
         training_size = len(dataset) - validation_size
 
+        # foler names are the classea
         dataset.classes
-
+        # Docs: https://pytorch.org/docs/stable/data.html#torch.utils.data.random_split
+        #                                   (Dataset, lenghts,                        denerator)   
         train_ds, val_ds_main = random_split(dataset, [training_size, validation_size])
-
         val_ds, test_ds = random_split(val_ds_main, [300, 200])
 
+        # get length 
         len(train_ds), len(val_ds)
 
+        # show image
         show_example(*train_ds[1])
 
-
+        # Docs: https://pytorch.org/docs/stable/data.html#torch.utils.data.random_split
         train_dl = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True)
         val_dl = DataLoader(val_ds, batch_size=BATCH_SIZE)
         test_dl = DataLoader(test_ds, batch_size=BATCH_SIZE)
 
+        # plot on a graph 
         show_batch(train_dl)
 
+        # make a model
         model = ImageClassificationModel()
 
+        # NOTE: see if this does something, seems like it does nothing
+        # get images and labels 
         for images, labels in train_dl:
             out = model(images)
             break
-       
+        
+        # get the device, CPU or CUDA GPU
         device = get_default_device()
 
+
+        # while loading datta use a specif device
         train_dl = DeviceDataLoader(train_dl, device)
         val_dl = DeviceDataLoader(val_dl, device)
         to_device(model, device)
 
+        # move the tensors to a specif device
         model = to_device(ImageClassificationModel(), device)
+
 
         evaluate(model, val_dl)
         
+        # https://optimization.cbe.cornell.edu/index.php?title=Adam#:~:text=Adam.,RMSP%20which%20are%20explained%20below.
         opt_func = torch.optim.Adam
         lr = 0.001
 
+        # train the model
         history = fit(NUM_OF_EPOCHS, lr, model, train_dl, val_dl, opt_func)
 
+        #plot the changes 
         plot_accuracies(history)
 
         test_dl = DeviceDataLoader(test_dl, device)
@@ -154,22 +183,30 @@ def main():
 
         plot_accuracies(history)
 
+        # save the model
         weights_fname = 'flower-resnet.pth'
         torch.save(model.state_dict(), weights_fname)
 
+        # start the image classification
+        # just assume that the image to be classified are at the end
         #             (start at 1,  to 2+1)
         for x in range(1, CLASSIFIED_IMAGES_COUNT+1):
+            # get the last index
             index = int(len(test_ds) - x )
             img, label = test_ds[index]
             plt.imshow(img.permute(1, 2, 0))
+            # show what the NN thinks the image is
             print('Label:', dataset.classes[label], ', Predicted:', predict_image(img, model, device, dataset))
         
 # end of main()
 
+# show the image
 def show_example(img, label):
     plt.imshow(img.permute(1, 2, 0))
 # end of show_example()
 
+
+# plot the image
 def show_batch(dl):
     for images, labels in dl:
         fig, ax = plt.subplots(figsize=(12, 6))
@@ -189,7 +226,10 @@ def accuracy(outputs, labels):
 # https://pytorch.org/docs/stable/generated/torch.no_grad.html
 @torch.no_grad()
 def evaluate(model, val_loader):
+    # https://pytorch.org/docs/stable/generated/torch.nn.Module.html#torch.nn.Module.eval
+    # Sets the module in evaluation mode.
     model.eval()
+    
     outputs = [model.validation_step(batch) for batch in val_loader]
     return model.validation_epoch_end(outputs)
 # end of evaluate
